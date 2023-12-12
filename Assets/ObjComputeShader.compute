@@ -1,0 +1,240 @@
+// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel MainCS
+
+// Data Struct
+struct ObjData
+{
+    float3 pos;
+    float3 movingPos;   // Origin
+    float3 adjustPos;   // Target
+    float3 showPos;     // Now
+    float colourDelta;
+    float vertDelta;
+    int colourGrp;
+    float effectStartTime;
+    int reactEffectMode;
+};
+
+// Buffers
+RWStructuredBuffer<ObjData> _ObjDataBuffer;
+
+// Required Variables
+float _Time;
+float _maxX;
+float _maxZ;
+float _ObjMoveSpeed;
+
+int _ReactCount;
+float _ReactTimeLimit;
+int _ReactMode[10];
+float3 _CursorPosX[10];
+float3 _CursorPosY[10];
+float3 _CursorPosZ[10];
+float _ReactStartTime[10];
+
+[numthreads(256,1,1)]   // 32's
+void MainCS (uint3 id : SV_DispatchThreadID)
+{
+    // Index
+    const int index = id.x;
+     
+    // Calculate Default Position
+    if (_ObjDataBuffer[index].pos.x >= _maxX)
+    {
+        _ObjDataBuffer[index].pos.x = -_maxX;
+        _ObjDataBuffer[index].movingPos.x = -_maxX;
+        _ObjDataBuffer[index].adjustPos.x = -_maxX;
+    }
+    else
+    {
+        _ObjDataBuffer[index].pos.x += _ObjMoveSpeed;
+        _ObjDataBuffer[index].movingPos.x += _ObjMoveSpeed;
+        _ObjDataBuffer[index].adjustPos.x += _ObjMoveSpeed;
+    }
+    if (_ObjDataBuffer[index].pos.z <= -_maxZ)
+    {
+        _ObjDataBuffer[index].pos.z = +_maxZ;
+        _ObjDataBuffer[index].movingPos.z = +_maxZ;
+        _ObjDataBuffer[index].adjustPos.z = +_maxZ;
+    }
+    else
+    {
+        _ObjDataBuffer[index].pos.z -= _ObjMoveSpeed;
+        _ObjDataBuffer[index].movingPos.z -= _ObjMoveSpeed;
+        _ObjDataBuffer[index].adjustPos.z -= _ObjMoveSpeed;
+    }
+    _ObjDataBuffer[index].pos.y += (float) (0.01f * sin(_Time + _ObjDataBuffer[index].vertDelta));
+    
+    // Calculate Show Position & Colour
+    
+    float x, y, z, dist;
+    _ObjDataBuffer[index].colourDelta = 0;
+    
+    for (int i = 0; i < 10; i = i+1)
+    {
+        x = _CursorPosX[i];
+        y = _CursorPosY[i];
+        z = _CursorPosZ[i];
+            
+        dist = distance(_ObjDataBuffer[index].pos, float3(x, y, z));
+        
+        // Click
+        if (dist < 100)
+        {
+            if (_ReactMode[i] == 1)
+            {                
+                // Colour
+                float currReactPhase = (_Time - _ReactStartTime[i]) / _ReactTimeLimit;
+                float tmpColourDelta;
+                if (currReactPhase < 0.15)
+                {
+                    tmpColourDelta = currReactPhase / 0.15;
+                }
+                else if (currReactPhase < 0.85)
+                {
+                    tmpColourDelta = 1;
+                }
+                else
+                {
+                    tmpColourDelta = (1 - currReactPhase) / 0.15;
+                }
+                
+                if (tmpColourDelta > _ObjDataBuffer[index].colourDelta)
+                    _ObjDataBuffer[index].colourDelta = tmpColourDelta;
+                
+                // Show Position
+                if (_ReactStartTime[i] > _ObjDataBuffer[index].effectStartTime) // Prevent multiple calculation
+                {
+                    _ObjDataBuffer[index].effectStartTime = _ReactStartTime[i]; // Come first => Prioritized 
+                                      
+                    float smoothDist = smoothstep(100, 0, dist);
+
+                    float3 dir = normalize(_ObjDataBuffer[index].pos - float3(x, y, z));
+                    float3 pushAmount = dir * lerp(0, 100, smoothDist);
+                    _ObjDataBuffer[index].adjustPos = _ObjDataBuffer[index].movingPos;
+                    _ObjDataBuffer[index].movingPos = _ObjDataBuffer[index].pos + pushAmount;
+                }
+                
+            }
+            //// Holding
+            //else if (_ReactMode[i] == 2)
+            //{
+            //    _ObjDataBuffer[index].reactEffectMode = 2;
+            //    _ObjDataBuffer[index].effectStartTime = _ReactStartTime[i];
+            
+            //    // Colour
+            //    float currReactPhase = (_Time - _ReactStartTime[i]) / _ReactTimeLimit; // Use same time scope
+            //    float tmpColourDelta;
+            //    if (currReactPhase < 0.15)
+            //    {
+            //        tmpColourDelta = currReactPhase / 0.15;
+            //    }
+            //    else
+            //    {
+            //        tmpColourDelta = 1;
+            //    }
+            //    _ObjDataBuffer[index].colourDelta = tmpColourDelta; // Must come first in list -> Newest effect to react
+            
+            //    // Show Position
+            //    float currTime = _Time - _ReactStartTime[i];
+                
+            //    _ObjDataBuffer[index].showPos.x = x + dist * sin((3.14 / 2) *(currTime));
+            //    _ObjDataBuffer[index].showPos.y = y + dist * cos((3.14 / 2) *(currTime));
+            
+                                      
+            //    //float smoothDist = smoothstep(100, 0, dist);
+
+            //    //float3 dir = normalize(_ObjDataBuffer[index].pos - float3(x, y, z));
+            //    //float3 pushAmount = dir * lerp(0, 100, smoothDist);
+            //    //_ObjDataBuffer[index].adjustPos = _ObjDataBuffer[index].movingPos;
+            //    //_ObjDataBuffer[index].movingPos = _ObjDataBuffer[index].pos + pushAmount;
+            
+            
+            
+            //    break; // Must come first for holding -> break
+            //}
+            //// TODO Release
+            //else if (_ReactMode[i] == 3)
+            //{
+            //    _ObjDataBuffer[index].reactEffectMode = 0; // Used as boolean for now, set as int for future coding
+                
+            //    // Colour
+            //    float currReactPhase = (_Time - _ReactStartTime[i]) / _ReactTimeLimit; // Use same time scope
+            //    float tmpColourDelta;
+            //    if (currReactPhase < 0.15)
+            //    {
+            //        _ObjDataBuffer[index].colourDelta = 0.15 - currReactPhase / 0.15;
+            //    }
+            //    else
+            //    {
+            //        _ObjDataBuffer[index].colourDelta = 0;
+            //    }
+                
+            //    // Move Position
+            //    if (_ReactStartTime[i] > _ObjDataBuffer[index].effectStartTime) // Prevent multiple calculation
+            //    {
+            //        _ObjDataBuffer[index].effectStartTime = _ReactStartTime[i]; // Come first => Prioritized 
+                                      
+            //        float smoothDist = smoothstep(100, 0, dist);
+
+            //        float3 dir = normalize(_ObjDataBuffer[index].pos - float3(x, y, z));
+            //        float3 pushAmount = dir * lerp(0, 100, smoothDist);
+
+            //        _ObjDataBuffer[index].adjustPos = _ObjDataBuffer[index].movingPos;
+            //        _ObjDataBuffer[index].movingPos = _ObjDataBuffer[index].pos + pushAmount;
+            //    }
+            //}
+        }
+    }
+    // Calculate Show Position
+
+    if (_ObjDataBuffer[index].effectStartTime == 0)
+    {
+        _ObjDataBuffer[index].showPos = _ObjDataBuffer[index].pos;
+        _ObjDataBuffer[index].movingPos = _ObjDataBuffer[index].pos;
+    }
+    else
+    {
+        float currReactPhase = (_Time - _ObjDataBuffer[index].effectStartTime) / _ReactTimeLimit;
+        if (currReactPhase > 1) // End
+        {
+            _ObjDataBuffer[index].showPos = _ObjDataBuffer[index].pos;
+            _ObjDataBuffer[index].effectStartTime = 0;
+        }
+        else if (currReactPhase < 0.15)
+        {
+            float tmp = sin((3.14 / 2) * (_Time - _ObjDataBuffer[index].effectStartTime) / (_ReactTimeLimit * 0.15));
+            _ObjDataBuffer[index].showPos = lerp(_ObjDataBuffer[index].adjustPos, _ObjDataBuffer[index].movingPos, tmp);
+        }
+        else if (currReactPhase < 0.6)
+        {
+            _ObjDataBuffer[index].showPos = _ObjDataBuffer[index].movingPos;
+        }
+        else
+        {
+            float tmp = cos((3.14 / 2) * (_Time - _ObjDataBuffer[index].effectStartTime - 0.6) / (_ReactTimeLimit * 0.4));
+            _ObjDataBuffer[index].showPos = lerp(_ObjDataBuffer[index].pos, _ObjDataBuffer[index].movingPos, (1 - currReactPhase) / 0.4);
+            
+        //_ObjDataBuffer[index].pos = _ObjDataBuffer[index].movingPos;
+        //_ObjDataBuffer[index].showPos = _ObjDataBuffer[index].pos;
+        }
+        
+    }
+        
+
+    //if (_ObjDataBuffer[index].effectStartTime > 0)
+    //{
+    //    _ObjDataBuffer[index].colourDelta = 1;
+    //    //float tmp = sin(_Time - _ObjDataBuffer[index].effectStartTime);
+    //    //if (tmp > 0)
+    //    //    _ObjDataBuffer[index].colourDelta = tmp;
+    //}
+    //else
+    //{
+    //    _ObjDataBuffer[index].colourDelta = 0;
+    //}
+    
+    
+    // Calculate colorDelta for colour change factor
+
+}
